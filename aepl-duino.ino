@@ -89,6 +89,7 @@ const int Pot = A0;   //Entrée analogique sur A0 pour potard de changement de c
 const int Led13 = 13; //Temoin sur tout Arduino, suit le courant de bobine
 const int Courbe_b = 8;  //Entré D8  R PullUp.Connecter à la masse pour courbe b
 const int Courbe_c = 9;  //Entré D9  R PullUp. Connecter à la masse pour courbe c
+const int AbsPressure = A6; //Analog input connected to inlet manifold pressure sensor
 //Ici 3 positions:Decalage 0° si <1V, delAV° si 1 à 2 V, 2*delAv° pour > 2V
 int valPot = 0;       //0 à 1023 selon la position du potentiomètre en entree
 float modC1 = 0;      //Correctif pour C1[], deplace la courbe si potard connecté
@@ -126,6 +127,11 @@ int unsigned long Ttrans; //T transition de Dwell 4
 int unsigned long T_multi  = 0;  //Periode minimale pour multi-étincelle
 //Permet d'identifier le premier front et forcer T=Tdem, ainsi que Ibob=1, pour demarrer au premier front
 
+int valAbsPressure = 0;       // 0 to 1023, see https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
+float valAbsPressure_V = .0;  // 0 to 5 V, but the sensor won't actually have an output below 0.2 V
+int valAbsPressure_mbar = 0;  // 200 to 3100 mbar, but the sensor won't actually go beyond 2500 mbar
+int valRelPressure_mbar = 0;  // -800 to 1500 mbar
+
 //********************LES FONCTIONS*************************
 
 void  CalcD ()//////////////////
@@ -161,6 +167,15 @@ void Tst_Pot()///////////
     if (valPot < 500)modC1 = float (delAv) / float(AngleCibles);//Position 1
     else modC1 = 2 * float (delAv) / float(AngleCibles);//Position 2
   }
+}
+
+void Read_Pressure()
+{
+  valAbsPressure = analogRead(AbsPressure);
+  // See see https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/ :
+  valAbsPressure_V = valAbsPressure * .0049;
+  valAbsPressure_mbar = 500.0 * (valAbsPressure_V - .2) + 200;
+  valRelPressure_mbar = valAbsPressure_mbar - 1000;
 }
 
 void  Etincelle ()//////////
@@ -204,12 +219,39 @@ void  Etincelle ()//////////
   }
   //  Pour Dwell=4 uniquement, tant que N < Ntrans (Dwell4 ou non) on affiche en Bluetooth le regime et l'avance
   if ((Dwell != 4) || (T > Ttrans)) {
-    BT.println(NTa / T, 1);  //Afficher N et avance sur smart
+    BT.println("----");
+
+    BT.print("Rotational speed:  ");
+    // T:   time in micro-seconds of an engine revolution
+    // NTa: constant for converting T into tens of rotations per minute
+    BT.print(NTa / T, 1);  //Afficher N et avance sur smart
+    BT.println(" * 10 rpm");
     Serial.print("\t");
     Serial.print("\t");
     Serial.print("\t");
-    BT.println(45 - (D + tcor)*AngleCibles / T);
-  }
+
+    BT.print("Angle at ignition: ");
+    // tcor:         constant correction of D due to the time it takes to calculate it
+    // D:            corrected (tcor has already been subtracted) delay in micro-seconds to wait
+    //               after the target
+    // D + tcor:     uncorrected delay
+    // AngleCibles:  angle in degrees between two targets, e.g. 180 degrees with 4 cylinders
+    // AngleCapteur: position in degrees of the sensor before the top dead center
+    BT.print(AngleCapteur - (D + tcor)*AngleCibles / T);
+    BT.println(" degrees");
+
+    BT.print("Pressure sensor:   ");
+    BT.print(valAbsPressure_V, 1);
+    BT.println(" V");
+
+    BT.print("Absolute pressure: ");
+    BT.print(valAbsPressure_mbar);
+    BT.println(" mbar");
+
+    BT.print("Relative pressure: ");
+    BT.print(valRelPressure_mbar);
+    BT.println(" mbar");
+}
 
   Tst_Pot();//Voir si un potard connecté pour deplacer la courbe ou selectionner une autre courbe
   UneEtin = 1; //Pour signaler que le moteur tourne à l'isr_GestionIbob().
@@ -303,6 +345,7 @@ void setup()///////////////
   pinMode(Courbe_b, INPUT_PULLUP); //Entrée à la masse pour selectionner la courbe b
   pinMode(Courbe_c, INPUT_PULLUP); //Entrée à la masse pour selectionner la courbe c
   pinMode(Led13, OUTPUT);//Led d'origine sur tout Arduino, temoin du courant dans la bobine
+  pinMode(AbsPressure, INPUT); //A6 input connected to inlet manifold pressure sensor
 
   Init();// Executée une fois au demarrage et à chaque changement de courbe
 }
@@ -319,10 +362,14 @@ void loop()   ////////////////
     digitalWrite(Led13, 1); //Temoin
     Mot_OFF = 0; //Le moteur tourne
   }
+
+  Read_Pressure();
+
   if (T > Tlim)     //Sous la ligne rouge?
   { CalcD(); // Top();  //Oui, generer une etincelle
     Etincelle();
   }
+
   while (digitalRead(Cible) == CaptOn); //Attendre si la cible encore active
 }
 

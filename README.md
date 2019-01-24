@@ -15,3 +15,15 @@ This modification has been designed and validated by
 [Florian Lourot](https://www.linkedin.com/in/florian-lourot-3a7423a5).
 
 ![scheme](pics/scheme.png)
+
+When the engine is running below 3000 rpm, the software will send periodically the following
+debugging output over Bluetooth:
+
+```
+----
+Rotational speed:  201.3 * 10 rpm
+Angle at ignition: 5 degrees
+Pressure sensor:   2.1 V
+Absolute pressure: 1150 mbar
+Relative pressure: 150 mbar
+```
