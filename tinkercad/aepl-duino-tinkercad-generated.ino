@@ -311,7 +311,7 @@ unsigned long TimerOne::read()		//returns the value of the timer in microseconds
 //**************************************************************
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.0.1";
+char ver[] = "v0.0.2";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -523,8 +523,6 @@ void  Etincelle ()//////////
   }
   //  Pour Dwell=4 uniquement, tant que N < Ntrans (Dwell4 ou non) on affiche en Bluetooth le regime et l'avance
   if ((Dwell != 4) || (T > Ttrans)) {
-    BT.println("----");
-
     BT.print("Rotational speed:  ");
     // T:   time in micro-seconds of an engine revolution
     // NTa: constant for converting T into tens of rotations per minute
@@ -657,7 +655,12 @@ void setup()///////////////
 ///////////////////////////////////////////////////////////////////////////
 void loop()   ////////////////
 ////////////////////////////////////////////////////////////////////////////
-{ while (digitalRead(Cible) == !CaptOn); //Attendre front actif de la cible
+{
+  BT.println("----");
+  BT.print("Software version:  ");
+  BT.println(ver);
+
+  while (digitalRead(Cible) == !CaptOn); //Attendre front actif de la cible
   T = micros() - prec_H;    //front actif, arrivé calculer T
   prec_H = micros(); //heure du front actuel qui deviendra le front precedent
   if ( Mot_OFF == 1 ) { //Demarrage:premier front de capteur

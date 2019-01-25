@@ -21,6 +21,7 @@ debugging output over Bluetooth:
 
 ```
 ----
+Software version:  v0.0.2
 Rotational speed:  201.3 * 10 rpm
 Angle at ignition: 5 degrees
 Pressure sensor:   2.1 V
