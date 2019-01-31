@@ -16,15 +16,17 @@ This modification has been designed and validated by
 
 ![scheme](pics/scheme.png)
 
-When the engine is running below 3000 rpm, the software will send periodically the following
-debugging output over Bluetooth:
+The software will send periodically the following debugging output over Bluetooth:
 
 ```
-----
-Software version:  v0.0.2
-Rotational speed:  201.3 * 10 rpm
-Angle at ignition: 5 degrees
-Pressure sensor:   2.1 V
-Absolute pressure: 1150 mbar
-Relative pressure: 150 mbar
+RPM: 2013
+Timing adv: 5 deg
+Intake press: 150 mbar
 ```
+
+> **NOTE**: You can see this output on your smartphone by installing a Bluetooth terminal app like
+> [BlueTerm +](https://play.google.com/store/apps/details?id=de.jentsch.blueterm&hl=en). Default
+> settings:
+>
+> * SSID: `HC-05`
+> * password: `1234`

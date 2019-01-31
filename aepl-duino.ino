@@ -1,13 +1,10 @@
 //**************************************************************
 //Aepl-Duino  Allumage electronique programmable - Arduino Nano et compatibles
-//Si un module Bluetooth type HC05/06 est connecté sur l'Arduino (3 fils suffisent, voir ci desous)
-//on affiche sur smartphone(ou tablette)Android  le régime (t/mn /10)et l'avance en degrès
-//Surtout utile comme compte-tours precis pour regler la carburation au ralenti
 //**************************************************************
 #include "TimerOne.h"
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.0.2";
+char ver[] = "v0.0.3";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -71,16 +68,6 @@ int delAv = 2;//delta avance,par ex 2°. Quand Pot avance d'une position, l'avan
 //Ceci est une option. Avec un potard de 100kohms entre A0 et la masse, de 0-1V environ, courbe originale
 //de 1 a 2V environ avance augmentée de delAv, au dela de 2V, augmentée de 2*delAv
 //Attention.....Pas de pleine charge avec trop d'avance, danger pour les pistons..
-//*****************************************************************************
-//*********************Compte-tours sensible************************
-SoftwareSerial BT(10, 11);//Ceci est une option pour compte-tours en Bluetooth
-//                     D11 Arduino vers  RX du module BlueTooth HC05/06                    
-//                    +5V Arduino à Vcc, Gnd Arduino à Gnd
-//IMPORTANT mettre le HC05/06 en mode 115200 bps via une commande AT 
-//Voir http://a110a.free.fr/SPIP172/article.php3?id_article=150 pour effctuer ce passage
-//Sur le smartphon installer une appli telle que "Bluetooth Terminal HC-05"
-//ou encore "BlueTerm+" ou equivallent.Inscrire le module sur le smartphone
-//avec le code pin 1234, la première fois seulement.
 
 //***********************Variables du sketch************************************
 const int Bob = 4;    //Sortie D4 vers bobine.En option, on peut connecter une Led avec R=330ohms vers la masse
@@ -117,7 +104,6 @@ float Tc[30]; //Tableau des Ti correspondants au Ni
 int Tlim  = 0;  //Période minimale, limite, pour la ligne rouge
 int j_lim = 0;  //index maxi des N , donc aussi  Ang
 int unsigned long NT  = 0;//Facteur de conversion entre N et T à Ncyl donné
-int unsigned long NTa  = 0;//Facteur de conversion entre N et T pour affichage sur smartphone
 int AngleCibles = 0;//Angle entre 2 cibles, 180° pour 4 cyl, 120° pour 6 cyl, par exemple
 int UneEtin = 1; //=1 pour chaque étincelle, testé et remis à zero par isr_GestionIbob()
 int Ndem = 60;//Vitesse estimée du vilo entrainé par le demarreur en t/mn
@@ -131,6 +117,44 @@ int valAbsPressure = 0;       // 0 to 1023, see https://www.arduino.cc/reference
 float valAbsPressure_V = .0;  // 0 to 5 V, but the sensor won't actually have an output below 0.2 V
 int valAbsPressure_mbar = 0;  // 200 to 3100 mbar, but the sensor won't actually go beyond 2500 mbar
 int valRelPressure_mbar = 0;  // -800 to 1500 mbar
+
+
+// Singleton for sending data efficiently to the HC05 Bluetooth module.
+class BluetoothManager
+{
+public:
+  static BluetoothManager& get();
+
+  // If time has come, sends one line of data, else returns. Make sure to call this method often.
+  // Returns true if it has just sent the last line of a block of data.
+  bool send();
+
+private:
+  enum DataLine
+  {
+    NO_LINE_SENT_YET = -1,
+
+    DL_RPM = 0,
+    DL_TIMING_ADVANCE,
+    DL_INTAKE_PRESSURE,
+
+    AMOUNT_LINES_PER_BLOCK
+  };
+
+  static const int PIN_PLUGGED_TO_HC05_TX = 10;
+  static const int PIN_PLUGGED_TO_HC05_RX = 11;
+  static const int BAUD_RATE = 9600;
+  static const unsigned long MS_BETWEEN_LINES = 200;
+  static const unsigned long MS_BETWEEN_BLOCKS = 4000;
+
+  BluetoothManager();
+
+  SoftwareSerial serialDevice;
+
+  DataLine lastLineSent;
+  unsigned long msLastTimeLineSent;
+};
+
 
 //********************LES FONCTIONS*************************
 
@@ -178,6 +202,19 @@ void Read_Pressure()
   valRelPressure_mbar = valAbsPressure_mbar - 1000;
 }
 
+void Wait_For_Target(int wantedState)
+{
+  while (digitalRead(Cible) != wantedState)
+  {
+    if (BluetoothManager::get().send())
+    {
+      // If we have just sent a full block of data, update the known pressure for next time as we
+      // might be stuck here waiting if the engine isn't running:
+      Read_Pressure();
+    }
+  }
+}
+
 void  Etincelle ()//////////
 { if (D < 14000) {         // Currently, the largest value that will produce an accurate delay is 16383 µs
     delayMicroseconds(D); //Attendre D }
@@ -217,39 +254,13 @@ void  Etincelle ()//////////
     }
     Timer1.initialize(Davant_rech);//Attendre Drech µs avant de retablire le courant dans la bobine
   }
-  //  Pour Dwell=4 uniquement, tant que N < Ntrans (Dwell4 ou non) on affiche en Bluetooth le regime et l'avance
+
   if ((Dwell != 4) || (T > Ttrans)) {
-    BT.print("Rotational speed:  ");
-    // T:   time in micro-seconds of an engine revolution
-    // NTa: constant for converting T into tens of rotations per minute
-    BT.print(NTa / T, 1);  //Afficher N et avance sur smart
-    BT.println(" * 10 rpm");
+    BluetoothManager::get().send();
     Serial.print("\t");
     Serial.print("\t");
     Serial.print("\t");
-
-    BT.print("Angle at ignition: ");
-    // tcor:         constant correction of D due to the time it takes to calculate it
-    // D:            corrected (tcor has already been subtracted) delay in micro-seconds to wait
-    //               after the target
-    // D + tcor:     uncorrected delay
-    // AngleCibles:  angle in degrees between two targets, e.g. 180 degrees with 4 cylinders
-    // AngleCapteur: position in degrees of the sensor before the top dead center
-    BT.print(AngleCapteur - (D + tcor)*AngleCibles / T);
-    BT.println(" degrees");
-
-    BT.print("Pressure sensor:   ");
-    BT.print(valAbsPressure_V, 1);
-    BT.println(" V");
-
-    BT.print("Absolute pressure: ");
-    BT.print(valAbsPressure_mbar);
-    BT.println(" mbar");
-
-    BT.print("Relative pressure: ");
-    BT.print(valRelPressure_mbar);
-    BT.println(" mbar");
-}
+  }
 
   Tst_Pot();//Voir si un potard connecté pour deplacer la courbe ou selectionner une autre courbe
   UneEtin = 1; //Pour signaler que le moteur tourne à l'isr_GestionIbob().
@@ -289,7 +300,6 @@ void  Init ()/////////////
 { AngleCibles = 720 / Ncyl; //Cibles sur vilo.Ex pour 4 cylindres 180°,  120° pour 6 cylindres
   NT  = 120000000 / Ncyl; //Facteur de conversion Nt/mn moteur, Tµs entre deux PMH étincelle
   //c'est à dire deux cibles sur vilo ou deux cames d'allumeur
-  NTa = NT / 10; // Pour afficher N/10 au smartphone
   Ttrans = NT / Ntrans; //Calcul de la periode de transition pour Dwell 4
   T_multi = NT / N_multi; //Periode minimale pour generer un train d'étincelle
   //T temps entre 2 étincelle soit 720°  1°=1/6N
@@ -335,8 +345,7 @@ void setup()///////////////
 { Serial.begin(9600);//Ligne suivante, 3 Macros du langage C
   Serial.println(__FILE__); Serial.println(__DATE__); Serial.println(__TIME__);
   Serial.println(ver);
-  BT.begin(115200);//Vers module BlueTooth HC05/06
-  BT.flush();//A tout hasard
+  BluetoothManager::get();
   pinMode(Cible, INPUT_PULLUP); //Entrée front du capteur sur D2
   pinMode(Bob, OUTPUT); //Sortie sur D4 controle du courant dans la bobine
   pinMode(Pot, INPUT_PULLUP); //Entrée pour potard 100kohms, optionnel
@@ -352,11 +361,8 @@ void setup()///////////////
 void loop()   ////////////////
 ////////////////////////////////////////////////////////////////////////////
 {
-  BT.println("----");
-  BT.print("Software version:  ");
-  BT.println(ver);
+  Wait_For_Target(CaptOn);
 
-  while (digitalRead(Cible) == !CaptOn); //Attendre front actif de la cible
   T = micros() - prec_H;    //front actif, arrivé calculer T
   prec_H = micros(); //heure du front actuel qui deviendra le front precedent
   if ( Mot_OFF == 1 ) { //Demarrage:premier front de capteur
@@ -373,8 +379,80 @@ void loop()   ////////////////
     Etincelle();
   }
 
-  while (digitalRead(Cible) == CaptOn); //Attendre si la cible encore active
+  Wait_For_Target(!CaptOn);
 }
+
+
+BluetoothManager& BluetoothManager::get()
+{
+  static BluetoothManager instance;
+  return instance;
+}
+
+bool BluetoothManager::send()
+{
+  unsigned long now = millis();
+  if (msLastTimeLineSent + MS_BETWEEN_LINES > now ||
+      !lastLineSent && msLastTimeLineSent + MS_BETWEEN_BLOCKS > now)
+  {
+    return false;
+  }
+
+  DataLine nextLine = static_cast<DataLine>((static_cast<int>(lastLineSent) + 1) %
+                                            static_cast<int>(AMOUNT_LINES_PER_BLOCK));
+
+#ifdef TINKERCAD
+#define BT_DEV Serial
+  BT_DEV.print("[BT] ");
+#else
+#define BT_DEV serialDevice
+#endif
+
+  switch (nextLine)
+  {
+    case DL_RPM:
+      // T:  time in micro-seconds of an engine revolution
+      // NT: constant for converting T into rotations per minute
+      BT_DEV.print("RPM: ");
+      BT_DEV.println(NT / T);
+      break;
+
+    case DL_TIMING_ADVANCE:
+      // tcor:         constant correction of D due to the time it takes to calculate it
+      // D:            corrected (tcor has already been subtracted) delay in micro-seconds to wait
+      //               after the target
+      // D + tcor:     uncorrected delay
+      // AngleCibles:  angle in degrees between two targets, e.g. 180 degrees with 4 cylinders
+      // AngleCapteur: position in degrees of the sensor before the top dead center
+      BT_DEV.print("Timing adv: ");
+      BT_DEV.print(AngleCapteur - (D + tcor) * AngleCibles / T);
+      BT_DEV.println(" deg");
+      break;
+
+    case DL_INTAKE_PRESSURE:
+      BT_DEV.print("Intake press: ");
+      BT_DEV.print(valRelPressure_mbar);
+      BT_DEV.println(" mbar");
+      break;
+  }
+
+#undef BT_DEV
+
+  lastLineSent = nextLine;
+  msLastTimeLineSent = now;
+
+  return lastLineSent == AMOUNT_LINES_PER_BLOCK - 1;
+}
+
+BluetoothManager::BluetoothManager()
+  : serialDevice(PIN_PLUGGED_TO_HC05_TX, PIN_PLUGGED_TO_HC05_RX),
+    lastLineSent(NO_LINE_SENT_YET),
+    msLastTimeLineSent(0)
+{
+  serialDevice.begin(BAUD_RATE);
+  serialDevice.flush();
+}
+
 
 /////////////////Exemples de CAPTEURS/////////////////
 //Capteur Honeywell cylindrique 1GT101DC,contient un aimant sur le coté,type non saturé, sortie haute à vide,
