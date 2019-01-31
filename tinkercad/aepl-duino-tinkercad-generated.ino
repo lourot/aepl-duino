@@ -309,7 +309,7 @@ unsigned long TimerOne::read()		//returns the value of the timer in microseconds
 //**************************************************************
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.0.3";
+char ver[] = "v0.0.4";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -381,7 +381,6 @@ const int Pot = A0;   //Entrée analogique sur A0 pour potard de changement de c
 const int Led13 = 13; //Temoin sur tout Arduino, suit le courant de bobine
 const int Courbe_b = 8;  //Entré D8  R PullUp.Connecter à la masse pour courbe b
 const int Courbe_c = 9;  //Entré D9  R PullUp. Connecter à la masse pour courbe c
-const int AbsPressure = A6; //Analog input connected to inlet manifold pressure sensor
 //Ici 3 positions:Decalage 0° si <1V, delAV° si 1 à 2 V, 2*delAv° pour > 2V
 int valPot = 0;       //0 à 1023 selon la position du potentiomètre en entree
 float modC1 = 0;      //Correctif pour C1[], deplace la courbe si potard connecté
@@ -418,10 +417,9 @@ int unsigned long Ttrans; //T transition de Dwell 4
 int unsigned long T_multi  = 0;  //Periode minimale pour multi-étincelle
 //Permet d'identifier le premier front et forcer T=Tdem, ainsi que Ibob=1, pour demarrer au premier front
 
-int valAbsPressure = 0;       // 0 to 1023, see https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
-float valAbsPressure_V = .0;  // 0 to 5 V, but the sensor won't actually have an output below 0.2 V
-int valAbsPressure_mbar = 0;  // 200 to 3100 mbar, but the sensor won't actually go beyond 2500 mbar
-int valRelPressure_mbar = 0;  // -800 to 1500 mbar
+
+static const int PIN_INLET_MANIFOLD_PRESSURE_SENSOR = A6;
+static int relPressureMbar = 0; // -800 to 1500 mbar
 
 
 // Singleton for sending data efficiently to the HC05 Bluetooth module.
@@ -498,13 +496,36 @@ void Tst_Pot()///////////
   }
 }
 
-void Read_Pressure()
+// Reads and returns the relative pressure in mbar. Make sure to do the first call early as it will
+// consider the first read absolute pressure to be the atmospheric pressure and make use of it in
+// the next calls.
+int getRelPressureMbar()
 {
-  valAbsPressure = analogRead(AbsPressure);
-  // See see https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/ :
-  valAbsPressure_V = valAbsPressure * .0049;
-  valAbsPressure_mbar = 500.0 * (valAbsPressure_V - .2) + 200;
-  valRelPressure_mbar = valAbsPressure_mbar - 1000;
+  static int absAtmPressureMbar = 0;
+
+  // 0 to 1023, see https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
+  const int absPressure = analogRead(PIN_INLET_MANIFOLD_PRESSURE_SENSOR);
+
+  // 0 to 5 V, but the sensor won't actually have an output below 0.2 V:
+  const float absPressureVolts = absPressure * .0049;
+
+  if (absPressureVolts < .2) // sensor is disconnected
+  {
+    return 0;
+  }
+
+  // 200 to 3100 mbar, but the sensor won't actually go beyond 2500 mbar:
+  const int absPressureMbar = 500.0 * (absPressureVolts - .2) + 200;
+  if (!absAtmPressureMbar) // first time, current pressure must be the atmospheric pressure
+  {
+    if (absPressureMbar < 800 || absPressureMbar > 1200) // something is wrong, are we on Earth?
+    {
+      return 0;
+    }
+    absAtmPressureMbar = absPressureMbar;
+  }
+
+  return absPressureMbar - absAtmPressureMbar;
 }
 
 void Wait_For_Target(int wantedState)
@@ -515,7 +536,7 @@ void Wait_For_Target(int wantedState)
     {
       // If we have just sent a full block of data, update the known pressure for next time as we
       // might be stuck here waiting if the engine isn't running:
-      Read_Pressure();
+      relPressureMbar = getRelPressureMbar();
     }
   }
 }
@@ -657,7 +678,7 @@ void setup()///////////////
   pinMode(Courbe_b, INPUT_PULLUP); //Entrée à la masse pour selectionner la courbe b
   pinMode(Courbe_c, INPUT_PULLUP); //Entrée à la masse pour selectionner la courbe c
   pinMode(Led13, OUTPUT);//Led d'origine sur tout Arduino, temoin du courant dans la bobine
-  pinMode(AbsPressure, INPUT); //A6 input connected to inlet manifold pressure sensor
+  pinMode(PIN_INLET_MANIFOLD_PRESSURE_SENSOR, INPUT);
 
   Init();// Executée une fois au demarrage et à chaque changement de courbe
 }
@@ -666,6 +687,13 @@ void setup()///////////////
 void loop()   ////////////////
 ////////////////////////////////////////////////////////////////////////////
 {
+  static bool firstTime = true;
+  if (firstTime)
+  {
+    relPressureMbar = getRelPressureMbar();
+    firstTime = false;
+  }
+
   Wait_For_Target(CaptOn);
 
   T = micros() - prec_H;    //front actif, arrivé calculer T
@@ -677,7 +705,7 @@ void loop()   ////////////////
     Mot_OFF = 0; //Le moteur tourne
   }
 
-  Read_Pressure();
+  relPressureMbar = getRelPressureMbar();
 
   if (T > Tlim)     //Sous la ligne rouge?
   { CalcD(); // Top();  //Oui, generer une etincelle
@@ -736,7 +764,7 @@ bool BluetoothManager::send()
 
     case DL_INTAKE_PRESSURE:
       BT_DEV.print("Intake press: ");
-      BT_DEV.print(valRelPressure_mbar);
+      BT_DEV.print(relPressureMbar);
       BT_DEV.println(" mbar");
       break;
   }
