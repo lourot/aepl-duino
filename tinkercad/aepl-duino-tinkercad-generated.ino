@@ -309,7 +309,7 @@ unsigned long TimerOne::read()		//returns the value of the timer in microseconds
 //**************************************************************
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.0.4";
+char ver[] = "v0.0.5";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -448,7 +448,7 @@ private:
   static const int PIN_PLUGGED_TO_HC05_RX = 11;
   static const int BAUD_RATE = 9600;
   static const unsigned long MS_BETWEEN_LINES = 200;
-  static const unsigned long MS_BETWEEN_BLOCKS = 4000;
+  static const unsigned long MS_BETWEEN_BLOCKS = 1000;
 
   BluetoothManager();
 
