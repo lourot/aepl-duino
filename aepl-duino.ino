@@ -117,40 +117,45 @@ static const int PIN_INLET_MANIFOLD_PRESSURE_SENSOR = A6;
 static int relPressureMbar = 0; // -800 to 1500 mbar
 
 
-// Singleton for sending data efficiently to the HC05 Bluetooth module.
+// Singleton for sending/receiving data efficiently to the HC05 Bluetooth module.
 class BluetoothManager
 {
 public:
   static BluetoothManager& get();
 
-  // If time has come, sends one line of data, else returns. Make sure to call this method often.
-  // Returns true if it has just sent the last line of a block of data.
-  bool send();
+  // If time has come, performs an action (i.e. reads available data or sends one line of data),
+  // else returns. Make sure to call this method often.
+  // Returns true if it has just performed the last action of a full exchange.
+  bool exchange();
 
 private:
-  enum DataLine
+  enum Action
   {
-    NO_LINE_SENT_YET = -1,
+    NO_ACTION_PERFORMED_YET = -1,
 
-    DL_RPM = 0,
-    DL_TIMING_ADVANCE,
-    DL_INTAKE_PRESSURE,
+    ACTION_READ_AVAILABLE_DATA = 0,
+    ACTION_SEND_LINE_RPM,
+    ACTION_SEND_LINE_TIMING_ADVANCE,
+    ACTION_SEND_LINE_INTAKE_PRESSURE,
+    ACTION_SEND_LINE_RECEIVED,
 
-    AMOUNT_LINES_PER_BLOCK
+    AMOUNT_ACTIONS_PER_EXCHANGE
   };
 
   static const int PIN_PLUGGED_TO_HC05_TX = 10;
   static const int PIN_PLUGGED_TO_HC05_RX = 11;
   static const int BAUD_RATE = 9600;
-  static const unsigned long MS_BETWEEN_LINES = 200;
-  static const unsigned long MS_BETWEEN_BLOCKS = 1000;
+  static const unsigned long MS_BETWEEN_ACTIONS = 200;
+  static const unsigned long MS_BETWEEN_EXCHANGES = 1000;
 
   BluetoothManager();
 
   SoftwareSerial serialDevice;
 
-  DataLine lastLineSent;
-  unsigned long msLastTimeLineSent;
+  Action lastActionPerformed;
+  unsigned long msLastTimeActionPerformed;
+  String lineBeingReceived; // input buffer
+  String lastFullLineReceived;
 };
 
 
@@ -227,10 +232,10 @@ void Wait_For_Target(int wantedState)
 {
   while (digitalRead(Cible) != wantedState)
   {
-    if (BluetoothManager::get().send())
+    if (BluetoothManager::get().exchange())
     {
-      // If we have just sent a full block of data, update the known pressure for next time as we
-      // might be stuck here waiting if the engine isn't running:
+      // If we have just finished a full bluetooth exchange, update the known pressure for next time
+      // as we might be stuck here waiting if the engine isn't running:
       relPressureMbar = getRelPressureMbar();
     }
   }
@@ -277,7 +282,7 @@ void  Etincelle ()//////////
   }
 
   if ((Dwell != 4) || (T > Ttrans)) {
-    BluetoothManager::get().send();
+    BluetoothManager::get().exchange();
     Serial.print("\t");
     Serial.print("\t");
     Serial.print("\t");
@@ -417,17 +422,17 @@ BluetoothManager& BluetoothManager::get()
   return instance;
 }
 
-bool BluetoothManager::send()
+bool BluetoothManager::exchange()
 {
   unsigned long now = millis();
-  if (msLastTimeLineSent + MS_BETWEEN_LINES > now ||
-      !lastLineSent && msLastTimeLineSent + MS_BETWEEN_BLOCKS > now)
+  if (msLastTimeActionPerformed + MS_BETWEEN_ACTIONS > now ||
+      !lastActionPerformed && msLastTimeActionPerformed + MS_BETWEEN_EXCHANGES > now)
   {
     return false;
   }
 
-  DataLine nextLine = static_cast<DataLine>((static_cast<int>(lastLineSent) + 1) %
-                                            static_cast<int>(AMOUNT_LINES_PER_BLOCK));
+  Action nextAction = static_cast<Action>((static_cast<int>(lastActionPerformed) + 1) %
+                                          static_cast<int>(AMOUNT_ACTIONS_PER_EXCHANGE));
 
 #ifdef TINKERCAD
 #define BT_DEV Serial
@@ -436,16 +441,39 @@ bool BluetoothManager::send()
 #define BT_DEV serialDevice
 #endif
 
-  switch (nextLine)
+  switch (nextAction)
   {
-    case DL_RPM:
+    case ACTION_READ_AVAILABLE_DATA:
+    {
+      const int numAvailableChars = BT_DEV.available();
+      for (int i = 0; i < numAvailableChars; ++i)
+      {
+        const char incomingChar = static_cast<char>(BT_DEV.read());
+        if (incomingChar == '\r' || incomingChar == '\n')
+        {
+          if (lineBeingReceived.length() > 0)
+          {
+            lastFullLineReceived = lineBeingReceived;
+            lineBeingReceived = "";
+            break;
+          }
+        }
+        else
+        {
+          lineBeingReceived += incomingChar;
+        }
+      }
+      break;
+    }
+
+    case ACTION_SEND_LINE_RPM:
       // T:  time in micro-seconds of an engine revolution
       // NT: constant for converting T into rotations per minute
       BT_DEV.print("RPM: ");
       BT_DEV.println(NT / T);
       break;
 
-    case DL_TIMING_ADVANCE:
+    case ACTION_SEND_LINE_TIMING_ADVANCE:
       // tcor:         constant correction of D due to the time it takes to calculate it
       // D:            corrected (tcor has already been subtracted) delay in micro-seconds to wait
       //               after the target
@@ -457,25 +485,30 @@ bool BluetoothManager::send()
       BT_DEV.println(" deg");
       break;
 
-    case DL_INTAKE_PRESSURE:
+    case ACTION_SEND_LINE_INTAKE_PRESSURE:
       BT_DEV.print("Intake press: ");
       BT_DEV.print(relPressureMbar);
       BT_DEV.println(" mbar");
+      break;
+
+    case ACTION_SEND_LINE_RECEIVED:
+      BT_DEV.print("Received: ");
+      BT_DEV.println(lastFullLineReceived);
       break;
   }
 
 #undef BT_DEV
 
-  lastLineSent = nextLine;
-  msLastTimeLineSent = now;
+  lastActionPerformed = nextAction;
+  msLastTimeActionPerformed = now;
 
-  return lastLineSent == AMOUNT_LINES_PER_BLOCK - 1;
+  return lastActionPerformed == AMOUNT_ACTIONS_PER_EXCHANGE - 1;
 }
 
 BluetoothManager::BluetoothManager()
   : serialDevice(PIN_PLUGGED_TO_HC05_TX, PIN_PLUGGED_TO_HC05_RX),
-    lastLineSent(NO_LINE_SENT_YET),
-    msLastTimeLineSent(0)
+    lastActionPerformed(NO_ACTION_PERFORMED_YET),
+    msLastTimeActionPerformed(0)
 {
   serialDevice.begin(BAUD_RATE);
   serialDevice.flush();

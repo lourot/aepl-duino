@@ -22,11 +22,15 @@ The software will send periodically the following debugging output over Bluetoot
 RPM: 2013
 Timing adv: 5 deg
 Intake press: 150 mbar
+Received: hello
 ```
 
-> **NOTE**: You can see this output on your smartphone by installing a Bluetooth terminal app like
-> [BlueTerm +](https://play.google.com/store/apps/details?id=de.jentsch.blueterm&hl=en). Default
-> settings:
+> **NOTES**:
 >
-> * SSID: `HC-05`
-> * password: `1234`
+> * You can see this output on your smartphone by installing a Bluetooth terminal app like
+>   [BlueTerm +](https://play.google.com/store/apps/details?id=de.jentsch.blueterm&hl=en). Default
+>   settings:
+>     - SSID: `HC-05`
+>     - password: `1234`
+> * `Received:` is the last text (terminated by a carriage return and/or a line feed) the you have
+>   sent by typing e.g. `hello[return]` in the app.
