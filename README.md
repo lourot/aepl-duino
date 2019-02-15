@@ -34,3 +34,5 @@ Received: hello
 >     - password: `1234`
 > * `Received:` is the last text (terminated by a carriage return and/or a line feed) the you have
 >   sent by typing e.g. `hello[return]` in the app.
+> * We are implementing an [Android app](android) that will be easier to use than a Bluetooth
+>   terminal app.
