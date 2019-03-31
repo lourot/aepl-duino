@@ -16,23 +16,4 @@ This modification has been designed and validated by
 
 ![scheme](pics/scheme.png)
 
-The software will send periodically the following debugging output over Bluetooth:
-
-```
-RPM: 2013
-Timing adv: 5 deg
-Intake press: 150 mbar
-Received: hello
-```
-
-> **NOTES**:
->
-> * You can see this output on your smartphone by installing a Bluetooth terminal app like
->   [BlueTerm +](https://play.google.com/store/apps/details?id=de.jentsch.blueterm&hl=en). Default
->   settings:
->     - SSID: `HC-05`
->     - password: `1234`
-> * `Received:` is the last text (terminated by a carriage return and/or a line feed) the you have
->   sent by typing e.g. `hello[return]` in the app.
-> * We are implementing an [Android app](android) that will be easier to use than a Bluetooth
->   terminal app.
+[This Android app](android/) can communicate with the Arduino software over Bluetooth.
