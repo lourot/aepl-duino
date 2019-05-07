@@ -309,7 +309,7 @@ unsigned long TimerOne::read()		//returns the value of the timer in microseconds
 //**************************************************************
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.0.5";
+char ver[] = "v0.1.0";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -419,7 +419,7 @@ int unsigned long T_multi  = 0;  //Periode minimale pour multi-étincelle
 
 
 static const int PIN_INLET_MANIFOLD_PRESSURE_SENSOR = A6;
-static int relPressureMbar = 0; // -800 to 1500 mbar
+static int relPressureMbar = 0;
 
 
 // Singleton for sending/receiving data efficiently to the HC05 Bluetooth module.
@@ -428,7 +428,7 @@ class BluetoothManager
 public:
   static BluetoothManager& get();
 
-  // If time has come, performs an action (i.e. reads available data or sends one line of data),
+  // If time has come, performs an action (i.e. reads or sends one data item),
   // else returns. Make sure to call this method often.
   // Returns true if it has just performed the last action of a full exchange.
   bool exchange();
@@ -438,11 +438,12 @@ private:
   {
     NO_ACTION_PERFORMED_YET = -1,
 
-    ACTION_READ_AVAILABLE_DATA = 0,
-    ACTION_SEND_LINE_RPM,
-    ACTION_SEND_LINE_TIMING_ADVANCE,
-    ACTION_SEND_LINE_INTAKE_PRESSURE,
-    ACTION_SEND_LINE_RECEIVED,
+    ACTION_READ_ITEM_ADVANCE_CORRECTION = 0,
+    ACTION_SEND_ITEM_HEADER,
+    ACTION_SEND_ITEM_RPM,
+    ACTION_SEND_ITEM_TIMING_ADVANCE,
+    ACTION_SEND_ITEM_INTAKE_PRESSURE,
+    ACTION_SEND_ITEM_RECEIVED,
 
     AMOUNT_ACTIONS_PER_EXCHANGE
   };
@@ -450,8 +451,9 @@ private:
   static const int PIN_PLUGGED_TO_HC05_TX = 10;
   static const int PIN_PLUGGED_TO_HC05_RX = 11;
   static const int BAUD_RATE = 9600;
-  static const unsigned long MS_BETWEEN_ACTIONS = 200;
-  static const unsigned long MS_BETWEEN_EXCHANGES = 1000;
+  static const unsigned long MS_BETWEEN_ACTIONS = 50;
+  static const unsigned long MS_BETWEEN_EXCHANGES = 50;
+  static const unsigned char HEADER = 0xff;
 
   BluetoothManager();
 
@@ -459,8 +461,7 @@ private:
 
   Action lastActionPerformed;
   unsigned long msLastTimeActionPerformed;
-  String lineBeingReceived; // input buffer
-  String lastFullLineReceived;
+  unsigned char lastReceived;
 };
 
 
@@ -748,57 +749,64 @@ bool BluetoothManager::exchange()
 
   switch (nextAction)
   {
-    case ACTION_READ_AVAILABLE_DATA:
-    {
-      const int numAvailableChars = BT_DEV.available();
-      for (int i = 0; i < numAvailableChars; ++i)
+    case ACTION_READ_ITEM_ADVANCE_CORRECTION:
+      while (BT_DEV.available())
       {
-        const char incomingChar = static_cast<char>(BT_DEV.read());
-        if (incomingChar == '\r' || incomingChar == '\n')
-        {
-          if (lineBeingReceived.length() > 0)
-          {
-            lastFullLineReceived = lineBeingReceived;
-            lineBeingReceived = "";
-            break;
-          }
-        }
-        else
-        {
-          lineBeingReceived += incomingChar;
-        }
+        lastReceived = BT_DEV.read();
       }
+      break;
+
+    case ACTION_SEND_ITEM_HEADER:
+      BT_DEV.write(HEADER);
+      break;
+
+    case ACTION_SEND_ITEM_RPM:
+    {
+      // T:  time in micro-seconds of an engine revolution
+      // NT: constant for converting T into rotations per minute
+      const unsigned long rpm = NT / T;
+
+      // Format it so that it can never contain HEADER:
+      unsigned short rpmShort = rpm * 2;
+      BT_DEV.write(rpmShort);
       break;
     }
 
-    case ACTION_SEND_LINE_RPM:
-      // T:  time in micro-seconds of an engine revolution
-      // NT: constant for converting T into rotations per minute
-      BT_DEV.print("RPM: ");
-      BT_DEV.println(NT / T);
-      break;
-
-    case ACTION_SEND_LINE_TIMING_ADVANCE:
+    case ACTION_SEND_ITEM_TIMING_ADVANCE:
+    {
       // tcor:         constant correction of D due to the time it takes to calculate it
       // D:            corrected (tcor has already been subtracted) delay in micro-seconds to wait
       //               after the target
       // D + tcor:     uncorrected delay
       // AngleCibles:  angle in degrees between two targets, e.g. 180 degrees with 4 cylinders
       // AngleCapteur: position in degrees of the sensor before the top dead center
-      BT_DEV.print("Timing adv: ");
-      BT_DEV.print(AngleCapteur - (D + tcor) * AngleCibles / T);
-      BT_DEV.println(" deg");
-      break;
+      const int timingAdvanceDeg = AngleCapteur - (D + tcor) * AngleCibles / T;
 
-    case ACTION_SEND_LINE_INTAKE_PRESSURE:
-      BT_DEV.print("Intake press: ");
-      BT_DEV.print(relPressureMbar);
-      BT_DEV.println(" mbar");
+      // It should be between -100 and +100, so we can have it fit in a byte:
+      unsigned char timingAdvanceByte = 0;
+      if (timingAdvanceDeg >= -100 && timingAdvanceDeg <= 100)
+      {
+        timingAdvanceByte = timingAdvanceDeg + 100;
+      }
+      BT_DEV.write(timingAdvanceByte);
       break;
+    }
 
-    case ACTION_SEND_LINE_RECEIVED:
-      BT_DEV.print("Received: ");
-      BT_DEV.println(lastFullLineReceived);
+    case ACTION_SEND_ITEM_INTAKE_PRESSURE:
+    {
+      // It should be between -1200 and +1200, so with a precision of 10 mbar we can fit it in a
+      // byte:
+      unsigned char relPressureByte = 0;
+      if (relPressureMbar >= -1200 && relPressureMbar <= 1200)
+      {
+        relPressureByte = (relPressureMbar + 1200) / 10;
+      }
+      BT_DEV.write(relPressureByte);
+      break;
+    }
+
+    case ACTION_SEND_ITEM_RECEIVED:
+      BT_DEV.write(lastReceived);
       break;
   }
 

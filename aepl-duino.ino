@@ -461,13 +461,9 @@ bool BluetoothManager::exchange()
       // NT: constant for converting T into rotations per minute
       const unsigned long rpm = NT / T;
 
-      // Use a precision of 50 rpm in order to fit in a byte:
-      unsigned char rpmByte = rpm / 50;
-      if (rpmByte == HEADER)
-      {
-        rpmByte = 0;
-      }
-      BT_DEV.write(rpmByte);
+      // Format it so that it can never contain HEADER:
+      unsigned short rpmShort = rpm * 2;
+      BT_DEV.write(rpmShort);
       break;
     }
 
