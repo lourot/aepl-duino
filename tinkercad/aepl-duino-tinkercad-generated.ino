@@ -309,7 +309,7 @@ unsigned long TimerOne::read()		//returns the value of the timer in microseconds
 //**************************************************************
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.1.0";
+char ver[] = "v0.1.1";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -768,7 +768,7 @@ bool BluetoothManager::exchange()
 
       // Format it so that it can never contain HEADER:
       unsigned short rpmShort = rpm * 2;
-      BT_DEV.write(rpmShort);
+      BT_DEV.write(reinterpret_cast<const char*>(&rpmShort), sizeof(rpmShort));
       break;
     }
 
