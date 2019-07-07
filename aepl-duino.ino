@@ -1,10 +1,21 @@
 //**************************************************************
 //Aepl-Duino  Allumage electronique programmable - Arduino Nano et compatibles
 //**************************************************************
+#ifndef TINKERCAD
 #include "TimerOne.h"
+#else
+static class
+{
+public:
+  void initialize(unsigned long) {};
+  void attachInterrupt(void (*)()) {};
+  void stop() {};
+} Timer1;
+#endif
+
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.1.1";
+char ver[] = "v0.1.2";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -349,7 +360,6 @@ void  Init ()/////////////
   }
   j_lim = i - 1; //Revenir au dernier couple entré
   Tlim  = Tc[j_lim]; //Ligne rouge
-  Serial.print("Ligne_"); Serial.println(__LINE__);
   Serial.print("Tc = "); for (i = 1 ; i < 15; i++)Serial.println(Tc[i]);
   Serial.print("Tlim = "); Serial.println(Tlim);
   Serial.print("C1 = "); for (i = 1 ; i < 15; i++)Serial.println(C1[i]);
@@ -369,8 +379,8 @@ void  Init ()/////////////
 ////////////////////////////////////////////////////////////////////////
 void setup()///////////////
 /////////////////////////////////////////////////////////////////////////
-{ Serial.begin(9600);//Ligne suivante, 3 Macros du langage C
-  Serial.println(__FILE__); Serial.println(__DATE__); Serial.println(__TIME__);
+{
+  Serial.begin(9600);
   Serial.println(ver);
   BluetoothManager::get();
   pinMode(Cible, INPUT_PULLUP); //Entrée front du capteur sur D2
