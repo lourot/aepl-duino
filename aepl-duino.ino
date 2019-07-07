@@ -295,9 +295,6 @@ void  Etincelle ()//////////
 
   if ((Dwell != 4) || (T > Ttrans)) {
     BluetoothManager::get().exchange();
-    Serial.print("\t");
-    Serial.print("\t");
-    Serial.print("\t");
   }
 
   Tst_Pot();//Voir si un potard connecté pour deplacer la courbe ou selectionner une autre courbe
@@ -462,7 +459,9 @@ bool BluetoothManager::exchange()
       break;
 
     case ACTION_SEND_ITEM_HEADER:
+#ifndef TINKERCAD
       BT_DEV.write(HEADER);
+#endif
       break;
 
     case ACTION_SEND_ITEM_RPM:
@@ -471,9 +470,14 @@ bool BluetoothManager::exchange()
       // NT: constant for converting T into rotations per minute
       const unsigned long rpm = NT / T;
 
+#ifndef TINKERCAD
       // Format it so that it can never contain HEADER:
       unsigned short rpmShort = rpm * 2;
       BT_DEV.write(reinterpret_cast<const char*>(&rpmShort), sizeof(rpmShort));
+#else
+      BT_DEV.print("RPM = ");
+      BT_DEV.print(rpm);
+#endif
       break;
     }
 
@@ -487,6 +491,7 @@ bool BluetoothManager::exchange()
       // AngleCapteur: position in degrees of the sensor before the top dead center
       const int timingAdvanceDeg = AngleCapteur - (D + tcor) * AngleCibles / T;
 
+#ifndef TINKERCAD
       // It should be between -100 and +100, so we can have it fit in a byte:
       unsigned char timingAdvanceByte = 0;
       if (timingAdvanceDeg >= -100 && timingAdvanceDeg <= 100)
@@ -494,11 +499,17 @@ bool BluetoothManager::exchange()
         timingAdvanceByte = timingAdvanceDeg + 100;
       }
       BT_DEV.write(timingAdvanceByte);
+#else
+      BT_DEV.print("advance = ");
+      BT_DEV.print(timingAdvanceDeg);
+      BT_DEV.print(" deg");
+#endif
       break;
     }
 
     case ACTION_SEND_ITEM_INTAKE_PRESSURE:
     {
+#ifndef TINKERCAD
       // It should be between -1200 and +1200, so with a precision of 10 mbar we can fit it in a
       // byte:
       unsigned char relPressureByte = 0;
@@ -507,14 +518,25 @@ bool BluetoothManager::exchange()
         relPressureByte = (relPressureMbar + 1200) / 10;
       }
       BT_DEV.write(relPressureByte);
+#else
+      BT_DEV.print("intake pres. = ");
+      BT_DEV.print(relPressureMbar);
+      BT_DEV.print(" mbar");
+#endif
       break;
     }
 
     case ACTION_SEND_ITEM_RECEIVED:
+#ifdef TINKERCAD
+      BT_DEV.print("received = ");
+#endif
       BT_DEV.write(lastReceived);
       break;
   }
 
+#ifdef TINKERCAD
+  BT_DEV.println("");
+#endif
 #undef BT_DEV
 
   lastActionPerformed = nextAction;
