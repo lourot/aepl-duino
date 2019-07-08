@@ -139,6 +139,8 @@ public:
   // Returns true if it has just performed the last action of a full exchange.
   bool exchange();
 
+  int getLastReceivedTimingAdvanceCorrectionDeg() const;
+
 private:
   enum Action
   {
@@ -160,6 +162,7 @@ private:
   static const unsigned long MS_BETWEEN_ACTIONS = 50;
   static const unsigned long MS_BETWEEN_EXCHANGES = 50;
   static const unsigned char HEADER = 0xff;
+  static const unsigned char BYTE_TIMING_ADVANCE_ZERO_DEG = 100;
 
   BluetoothManager();
 
@@ -183,6 +186,9 @@ void  CalcD ()//////////////////
       break;  //Sortir, on a D
     }
   }
+
+  // Apply the timing advance correction received over bluetooth:
+  D -= BluetoothManager::get().getLastReceivedTimingAdvanceCorrectionDeg() * T / AngleCibles;
 }
 
 void  Genere_multi()//////////
@@ -489,6 +495,7 @@ bool BluetoothManager::exchange()
       // D + tcor:     uncorrected delay
       // AngleCibles:  angle in degrees between two targets, e.g. 180 degrees with 4 cylinders
       // AngleCapteur: position in degrees of the sensor before the top dead center
+      // T:            amount of micro-seconds it took last time between two targets
       const int timingAdvanceDeg = AngleCapteur - (D + tcor) * AngleCibles / T;
 
 #ifndef TINKERCAD
@@ -545,10 +552,18 @@ bool BluetoothManager::exchange()
   return lastActionPerformed == AMOUNT_ACTIONS_PER_EXCHANGE - 1;
 }
 
+int BluetoothManager::getLastReceivedTimingAdvanceCorrectionDeg() const
+{
+  int correction = static_cast<int>(lastReceived);
+  correction -= BYTE_TIMING_ADVANCE_ZERO_DEG;
+  return constrain(correction, -10, 10);
+}
+
 BluetoothManager::BluetoothManager()
   : serialDevice(PIN_PLUGGED_TO_HC05_TX, PIN_PLUGGED_TO_HC05_RX),
     lastActionPerformed(NO_ACTION_PERFORMED_YET),
-    msLastTimeActionPerformed(0)
+    msLastTimeActionPerformed(0),
+    lastReceived(BYTE_TIMING_ADVANCE_ZERO_DEG)
 {
   serialDevice.begin(BAUD_RATE);
   serialDevice.flush();
