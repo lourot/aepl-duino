@@ -21,7 +21,7 @@ public:
 
 #include <SoftwareSerial.h>
 
-char ver[] = "v0.1.2";
+char ver[] = "v0.1.3";
 
 //******************************************************************************
 //**************  Seulement  6 lignes à renseigner obligatoirement.****************
@@ -187,14 +187,17 @@ void  CalcD ()//////////////////
 { for (int j = 1; j <= j_lim; j++)//On commence par T la plus longue et on remonte
   {
     if  (T >=  Tc[j]) {     //on a trouvé le bon segment de la courbe d'avance
-      D =  float(T * ( C1[j] - modC1 )  + C2[j]) ;//D en µs, C2 incorpore le temps de calcul tcor
+      D = T * (C1[j] - modC1)  + C2[j]; //D en µs, C2 incorpore le temps de calcul tcor
       if ( T > Tplancher)D = T * RDzero;//Imposer 0° d'avance de 0 à 500t/mn
       break;  //Sortir, on a D
     }
   }
 
   // Apply the timing advance correction received over bluetooth:
-  D -= BluetoothManager::get().getLastReceivedTimingAdvanceCorrectionDeg() * T / AngleCibles;
+  const long lastReceivedTimingAdvanceCorrectionMicroseconds
+      = BluetoothManager::get().getLastReceivedTimingAdvanceCorrectionDeg() * T / AngleCibles;
+  D = (D > lastReceivedTimingAdvanceCorrectionMicroseconds) ?
+      D - lastReceivedTimingAdvanceCorrectionMicroseconds : 0;
 }
 
 void  Genere_multi()//////////
